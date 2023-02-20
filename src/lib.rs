@@ -241,7 +241,12 @@ impl App {
             compute_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             compute_pass.dispatch_workgroups(dispatch_with as _, dispatch_height as _, 1);
         }
-        render_state.queue.submit([encoder.finish()]);
+        let sumbmission_index = render_state.queue.submit([encoder.finish()]);
+
+        // this is slow but its just so the timings are a bit more accurate
+        render_state
+            .device
+            .poll(wgpu::Maintain::WaitForSubmissionIndex(sumbmission_index));
 
         self.last_frame_update_duration = start_frame_time.elapsed();
     }
