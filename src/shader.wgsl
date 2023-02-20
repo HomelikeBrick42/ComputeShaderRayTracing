@@ -3,13 +3,6 @@ struct Ray {
     direction: vec3<f32>,
 }
 
-struct Sphere {
-    position: vec3<f32>,
-    radius: f32,
-    color: vec3<f32>,
-}
-
-// vec4s are just so alignment isnt messed up on the rust side
 struct Camera {
     position: vec3<f32>,
     forward: vec3<f32>,
@@ -17,32 +10,45 @@ struct Camera {
     up: vec3<f32>,
 }
 
-@group(1) @binding(0)
-var<uniform> camera: Camera;
+struct Sphere {
+    position: vec3<f32>,
+    radius: f32,
+    color: vec3<f32>,
+}
+
+struct SpheresBuffer {
+    sphere_count: u32,
+    spheres: array<Sphere>,
+}
 
 @group(0)
 @binding(0)
 var output_texture: texture_storage_2d<rgba8unorm, write>;
 
+@group(1)
+@binding(0)
+var<uniform> camera: Camera;
+
+@group(2)
+@binding(0)
+var<storage> spheres_buffer: SpheresBuffer;
+
 const max_distance: f32 = 1000.0;
 const min_distance: f32 = 0.01;
-
-var<private> sphere_count: u32;
-var<private> spheres: array<Sphere, 2>;
 
 fn sphere_sdf(position: vec3<f32>, sphere: Sphere) -> f32 {
     return length(sphere.position - position) - sphere.radius;
 }
 
 fn sdf(position: vec3<f32>) -> f32 {
-    if sphere_count == 0u {
+    if spheres_buffer.sphere_count == 0u {
         return 0.0;
     }
 
     var closest_sphere = 0u;
-    var dist = sphere_sdf(position, spheres[0]);
-    for (var i: u32 = 1u; i < sphere_count; i++) {
-        let new_dist = sphere_sdf(position, spheres[i]);
+    var dist = sphere_sdf(position, spheres_buffer.spheres[0]);
+    for (var i: u32 = 1u; i < spheres_buffer.sphere_count; i++) {
+        let new_dist = sphere_sdf(position, spheres_buffer.spheres[i]);
         if new_dist < dist {
             closest_sphere = i;
             dist = new_dist;
@@ -77,13 +83,13 @@ fn does_hit(ray: Ray) -> bool {
 fn get_color(ray: Ray) -> vec3<f32> {
     var ray = ray;
 
-    if sphere_count != 0u {
+    if spheres_buffer.sphere_count != 0u {
         var distance: f32 = 0.0;
         while distance < max_distance {
             var closest_sphere = 0u;
-            var dist = sphere_sdf(ray.origin, spheres[0]);
-            for (var i: u32 = 1u; i < sphere_count; i++) {
-                let new_dist = sphere_sdf(ray.origin, spheres[i]);
+            var dist = sphere_sdf(ray.origin, spheres_buffer.spheres[0]);
+            for (var i: u32 = 1u; i < spheres_buffer.sphere_count; i++) {
+                let new_dist = sphere_sdf(ray.origin, spheres_buffer.spheres[i]);
                 if new_dist < dist {
                     closest_sphere = i;
                     dist = new_dist;
@@ -102,7 +108,7 @@ fn get_color(ray: Ray) -> vec3<f32> {
                 let does_hit = does_hit(new_ray);
 
                 let light_amount = max(f32(!does_hit) * dot(normal, -light_direction), 0.05);
-                return spheres[closest_sphere].color * light_amount;
+                return spheres_buffer.spheres[closest_sphere].color * light_amount;
             }
         }
     }
@@ -124,14 +130,6 @@ fn main(
     if coords.x >= size.x || coords.y >= size.y {
         return;
     }
-
-    sphere_count = 2u;
-    spheres[0].position = vec3<f32>(0.0, 0.0, 3.0);
-    spheres[0].radius = 1.0;
-    spheres[0].color = vec3<f32>(0.2, 0.3, 0.8);
-    spheres[1].position = vec3<f32>(0.2, 1.3, 2.5);
-    spheres[1].radius = 0.3;
-    spheres[1].color = vec3<f32>(0.8, 0.5, 0.2);
 
     var uv = vec2<f32>(coords) / vec2<f32>(size);
     uv.y = 1.0 - uv.y;

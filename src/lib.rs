@@ -1,6 +1,6 @@
 use cgmath::{Quaternion, Rotation3};
 use eframe::egui;
-use encase::{ShaderType, UniformBuffer};
+use encase::{ShaderSize, ShaderType, StorageBuffer, UniformBuffer};
 use wgpu::util::DeviceExt;
 
 #[derive(Clone, Copy)]
@@ -15,6 +15,30 @@ struct CameraUniform {
     forward: cgmath::Vector3<f32>,
     right: cgmath::Vector3<f32>,
     up: cgmath::Vector3<f32>,
+}
+
+#[derive(Clone, Copy, ShaderType)]
+struct Sphere {
+    position: cgmath::Vector3<f32>,
+    radius: f32,
+    color: cgmath::Vector3<f32>,
+}
+
+impl Default for Sphere {
+    fn default() -> Self {
+        Self {
+            position: (0.0, 0.0, 0.0).into(),
+            radius: 1.0,
+            color: (1.0, 1.0, 1.0).into(),
+        }
+    }
+}
+
+#[derive(Clone, ShaderType)]
+struct SpheresBuffer {
+    sphere_count: u32,
+    #[size(runtime)]
+    spheres: Vec<Sphere>,
 }
 
 impl From<Camera> for CameraUniform {
@@ -36,7 +60,6 @@ pub struct App {
     fixed_update_time: f64, // change this to std::time::Duration at some point
     last_frame_update_duration: std::time::Duration,
     last_fixed_update_duration: std::time::Duration,
-    counter: isize,
     texture_size: (usize, usize),
     texture_bind_group: wgpu::BindGroup,
     texture_id: egui::TextureId,
@@ -44,6 +67,10 @@ pub struct App {
     camera: Camera,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    spheres: SpheresBuffer,
+    spheres_buffer: wgpu::Buffer,
+    spheres_bind_group: wgpu::BindGroup,
+    spheres_buffer_size: usize,
 }
 
 impl App {
@@ -107,15 +134,14 @@ impl App {
                 });
 
         let camera = Camera {
-            position: (0.0, 0.0, 0.0).into(),
+            position: (0.0, 0.0, -3.0).into(),
             rotation: Quaternion::from_axis_angle((0.0, 0.0, 1.0).into(), cgmath::Deg(0.0)),
         };
 
         let camera_buffer = {
             let camera_uniform: CameraUniform = camera.into();
-            let mut buffer = UniformBuffer::new(
-                [0u8; <CameraUniform as ShaderType>::METADATA.min_size().get() as _],
-            );
+            let mut buffer =
+                UniformBuffer::new([0u8; <CameraUniform as ShaderSize>::SHADER_SIZE.get() as _]);
             buffer.write(&camera_uniform).unwrap();
             render_state
                 .device
@@ -137,12 +163,44 @@ impl App {
                 label: Some("camera_bind_group"),
             });
 
+        let spheres = SpheresBuffer {
+            sphere_count: 1,
+            spheres: vec![Sphere::default()],
+        };
+
+        let (spheres_buffer, spheres_buffer_size) = {
+            let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+            buffer.write(&spheres).unwrap();
+            let buffer = buffer.into_inner();
+            (
+                render_state
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Sphere Buffer"),
+                        contents: &buffer,
+                        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                    }),
+                buffer.len(),
+            )
+        };
+
+        let spheres_bind_group =
+            render_state
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &pipeline.get_bind_group_layout(2),
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: spheres_buffer.as_entire_binding(),
+                    }],
+                    label: Some("spheres_bind_group"),
+                });
+
         Self {
             last_frame_time: std::time::Instant::now(),
             fixed_update_time: 0.0,
             last_frame_update_duration: std::time::Duration::ZERO,
             last_fixed_update_duration: std::time::Duration::ZERO,
-            counter: 0,
             texture_size: (width, height),
             texture_bind_group,
             texture_id,
@@ -150,6 +208,10 @@ impl App {
             camera,
             camera_buffer,
             camera_bind_group,
+            spheres,
+            spheres_buffer,
+            spheres_bind_group,
+            spheres_buffer_size,
         }
     }
 
@@ -215,13 +277,47 @@ impl App {
         // Update camera uniform
         {
             let camera_uniform: CameraUniform = self.camera.into();
-            let mut buffer = UniformBuffer::new(
-                [0u8; <CameraUniform as ShaderType>::METADATA.min_size().get() as _],
-            );
+            let mut buffer =
+                UniformBuffer::new([0u8; <CameraUniform as ShaderSize>::SHADER_SIZE.get() as _]);
             buffer.write(&camera_uniform).unwrap();
             render_state
                 .queue
                 .write_buffer(&self.camera_buffer, 0, &buffer.into_inner());
+        }
+
+        // Update spheres buffer
+        {
+            let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+            buffer.write(&self.spheres).unwrap();
+            let buffer = buffer.into_inner();
+            if self.spheres_buffer_size < buffer.len() {
+                self.spheres_buffer =
+                    render_state
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Sphere Buffer"),
+                            contents: &buffer,
+                            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                        });
+
+                self.spheres_bind_group =
+                    render_state
+                        .device
+                        .create_bind_group(&wgpu::BindGroupDescriptor {
+                            layout: &self.pipeline.get_bind_group_layout(2),
+                            entries: &[wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: self.spheres_buffer.as_entire_binding(),
+                            }],
+                            label: Some("spheres_bind_group"),
+                        });
+
+                self.spheres_buffer_size = buffer.len();
+            } else {
+                render_state
+                    .queue
+                    .write_buffer(&self.spheres_buffer, 0, &buffer);
+            }
         }
 
         let mut encoder = render_state
@@ -239,6 +335,7 @@ impl App {
             compute_pass.set_pipeline(&self.pipeline);
             compute_pass.set_bind_group(0, &self.texture_bind_group, &[]);
             compute_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.spheres_bind_group, &[]);
             compute_pass.dispatch_workgroups(dispatch_with as _, dispatch_height as _, 1);
         }
         let sumbmission_index = render_state.queue.submit([encoder.finish()]);
@@ -273,17 +370,6 @@ impl eframe::App for App {
         }
 
         egui::SidePanel::left("Counting").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                if ui.button("Count Up").clicked() {
-                    self.counter += 1;
-                }
-                if ui.button("Count Down").clicked() {
-                    self.counter -= 1;
-                }
-            });
-
-            ui.label(format!("Current count: {}", self.counter));
-
             ui.label(format!("FPS: {:.3}", 1.0 / ts));
             ui.label(format!(
                 "Render time: {:.3}ms",
@@ -293,6 +379,45 @@ impl eframe::App for App {
                 "Fixed update time: {:.3}ms",
                 self.last_fixed_update_duration.as_secs_f64() * 1000.0
             ));
+
+            ui.collapsing("Spheres", |ui| {
+                if ui.button("Add Sphere").clicked() {
+                    self.spheres.sphere_count += 1;
+                    self.spheres.spheres.push(Sphere::default());
+                }
+                let mut i = 0;
+                while i < self.spheres.sphere_count {
+                    let sphere = &mut self.spheres.spheres[i as usize];
+                    let mut to_remove = false;
+                    ui.collapsing(format!("Sphere {i}"), |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Position:");
+                            ui.add(egui::DragValue::new(&mut sphere.position.x).speed(0.1));
+                            ui.add(egui::DragValue::new(&mut sphere.position.y).speed(0.1));
+                            ui.add(egui::DragValue::new(&mut sphere.position.z).speed(0.1));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Radius:");
+                            ui.add(egui::DragValue::new(&mut sphere.radius).speed(0.1));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Color:");
+                            let mut color = sphere.color.into();
+                            egui::color_picker::color_edit_button_rgb(ui, &mut color);
+                            sphere.color = color.into();
+                        });
+                        if ui.button("Delete").clicked() {
+                            to_remove = true;
+                        }
+                    });
+                    if to_remove {
+                        self.spheres.sphere_count -= 1;
+                        self.spheres.spheres.remove(i as _);
+                    } else {
+                        i += 1;
+                    }
+                }
+            });
 
             ui.allocate_space(ui.available_size());
         });
@@ -325,6 +450,24 @@ impl eframe::App for App {
 
         if !ctx.wants_keyboard_input() {
             ctx.input(|i| {
+                let rotation_horizontal = cgmath::Quaternion::from_angle_y(cgmath::Deg(
+                    if i.key_down(egui::Key::ArrowLeft) {
+                        -90.0 * ts as f32
+                    } else if i.key_down(egui::Key::ArrowRight) {
+                        90.0 * ts as f32
+                    } else {
+                        0.0
+                    },
+                ));
+                let rotation_vertical = cgmath::Quaternion::from_angle_x(cgmath::Deg(
+                    if i.key_down(egui::Key::ArrowUp) {
+                        -90.0 * ts as f32
+                    } else if i.key_down(egui::Key::ArrowDown) {
+                        90.0 * ts as f32
+                    } else {
+                        0.0
+                    },
+                ));
                 let rotation_roll =
                     cgmath::Quaternion::from_angle_z(cgmath::Deg(if i.key_down(egui::Key::Q) {
                         90.0 * ts as f32
@@ -333,6 +476,8 @@ impl eframe::App for App {
                     } else {
                         0.0
                     }));
+                self.camera.rotation = self.camera.rotation * rotation_horizontal;
+                self.camera.rotation = self.camera.rotation * rotation_vertical;
                 self.camera.rotation = self.camera.rotation * rotation_roll;
 
                 const CAMERA_SPEED: f32 = 2.0;
