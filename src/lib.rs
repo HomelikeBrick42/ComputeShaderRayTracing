@@ -1,6 +1,6 @@
 use cgmath::{Quaternion, Rotation3};
 use eframe::egui;
-use encase::{ShaderSize, ShaderType, StorageBuffer, UniformBuffer};
+use encase::{ArrayLength, ShaderSize, ShaderType, StorageBuffer, UniformBuffer};
 use wgpu::util::DeviceExt;
 
 #[derive(Clone, Copy)]
@@ -36,7 +36,7 @@ impl Default for Sphere {
 
 #[derive(Clone, ShaderType)]
 struct SpheresBuffer {
-    sphere_count: u32,
+    sphere_count: ArrayLength,
     #[size(runtime)]
     spheres: Vec<Sphere>,
 }
@@ -67,7 +67,7 @@ pub struct App {
     camera: Camera,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    spheres: SpheresBuffer,
+    spheres_storage: SpheresBuffer,
     spheres_buffer: wgpu::Buffer,
     spheres_bind_group: wgpu::BindGroup,
     spheres_buffer_size: usize,
@@ -163,14 +163,14 @@ impl App {
                 label: Some("camera_bind_group"),
             });
 
-        let spheres = SpheresBuffer {
-            sphere_count: 1,
+        let spheres_storage = SpheresBuffer {
+            sphere_count: ArrayLength::default(),
             spheres: vec![Sphere::default()],
         };
 
         let (spheres_buffer, spheres_buffer_size) = {
             let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-            buffer.write(&spheres).unwrap();
+            buffer.write(&spheres_storage).unwrap();
             let buffer = buffer.into_inner();
             (
                 render_state
@@ -208,7 +208,7 @@ impl App {
             camera,
             camera_buffer,
             camera_bind_group,
-            spheres,
+            spheres_storage,
             spheres_buffer,
             spheres_bind_group,
             spheres_buffer_size,
@@ -288,7 +288,7 @@ impl App {
         // Update spheres buffer
         {
             let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-            buffer.write(&self.spheres).unwrap();
+            buffer.write(&self.spheres_storage).unwrap();
             let buffer = buffer.into_inner();
             if self.spheres_buffer_size < buffer.len() {
                 self.spheres_buffer =
@@ -382,19 +382,30 @@ impl eframe::App for App {
 
             ui.collapsing("Spheres", |ui| {
                 if ui.button("Add Sphere").clicked() {
-                    self.spheres.sphere_count += 1;
-                    self.spheres.spheres.push(Sphere::default());
+                    self.spheres_storage.spheres.push(Sphere::default());
                 }
                 let mut i = 0;
-                while i < self.spheres.sphere_count {
-                    let sphere = &mut self.spheres.spheres[i as usize];
+                while i < self.spheres_storage.spheres.len() {
+                    let sphere = &mut self.spheres_storage.spheres[i as usize];
                     let mut to_remove = false;
                     ui.collapsing(format!("Sphere {i}"), |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Position:");
-                            ui.add(egui::DragValue::new(&mut sphere.position.x).speed(0.1));
-                            ui.add(egui::DragValue::new(&mut sphere.position.y).speed(0.1));
-                            ui.add(egui::DragValue::new(&mut sphere.position.z).speed(0.1));
+                            ui.add(
+                                egui::DragValue::new(&mut sphere.position.x)
+                                    .prefix("x: ")
+                                    .speed(0.1),
+                            );
+                            ui.add(
+                                egui::DragValue::new(&mut sphere.position.y)
+                                    .prefix("y: ")
+                                    .speed(0.1),
+                            );
+                            ui.add(
+                                egui::DragValue::new(&mut sphere.position.z)
+                                    .prefix("z: ")
+                                    .speed(0.1),
+                            );
                         });
                         ui.horizontal(|ui| {
                             ui.label("Radius:");
@@ -411,8 +422,7 @@ impl eframe::App for App {
                         }
                     });
                     if to_remove {
-                        self.spheres.sphere_count -= 1;
-                        self.spheres.spheres.remove(i as _);
+                        self.spheres_storage.spheres.remove(i as _);
                     } else {
                         i += 1;
                     }

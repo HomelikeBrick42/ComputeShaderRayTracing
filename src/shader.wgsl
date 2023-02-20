@@ -31,7 +31,7 @@ var<uniform> camera: Camera;
 
 @group(2)
 @binding(0)
-var<storage> spheres_buffer: SpheresBuffer;
+var<storage> spheres_storage: SpheresBuffer;
 
 const max_distance: f32 = 1000.0;
 const min_distance: f32 = 0.01;
@@ -41,14 +41,14 @@ fn sphere_sdf(position: vec3<f32>, sphere: Sphere) -> f32 {
 }
 
 fn sdf(position: vec3<f32>) -> f32 {
-    if spheres_buffer.sphere_count == 0u {
+    if spheres_storage.sphere_count == 0u {
         return 0.0;
     }
 
     var closest_sphere = 0u;
-    var dist = sphere_sdf(position, spheres_buffer.spheres[0]);
-    for (var i: u32 = 1u; i < spheres_buffer.sphere_count; i++) {
-        let new_dist = sphere_sdf(position, spheres_buffer.spheres[i]);
+    var dist = sphere_sdf(position, spheres_storage.spheres[0]);
+    for (var i: u32 = 1u; i < spheres_storage.sphere_count; i++) {
+        let new_dist = sphere_sdf(position, spheres_storage.spheres[i]);
         if new_dist < dist {
             closest_sphere = i;
             dist = new_dist;
@@ -83,13 +83,13 @@ fn does_hit(ray: Ray) -> bool {
 fn get_color(ray: Ray) -> vec3<f32> {
     var ray = ray;
 
-    if spheres_buffer.sphere_count != 0u {
+    if spheres_storage.sphere_count != 0u {
         var distance: f32 = 0.0;
         while distance < max_distance {
             var closest_sphere = 0u;
-            var dist = sphere_sdf(ray.origin, spheres_buffer.spheres[0]);
-            for (var i: u32 = 1u; i < spheres_buffer.sphere_count; i++) {
-                let new_dist = sphere_sdf(ray.origin, spheres_buffer.spheres[i]);
+            var dist = sphere_sdf(ray.origin, spheres_storage.spheres[0]);
+            for (var i: u32 = 1u; i < spheres_storage.sphere_count; i++) {
+                let new_dist = sphere_sdf(ray.origin, spheres_storage.spheres[i]);
                 if new_dist < dist {
                     closest_sphere = i;
                     dist = new_dist;
@@ -108,7 +108,7 @@ fn get_color(ray: Ray) -> vec3<f32> {
                 let does_hit = does_hit(new_ray);
 
                 let light_amount = max(f32(!does_hit) * dot(normal, -light_direction), 0.05);
-                return spheres_buffer.spheres[closest_sphere].color * light_amount;
+                return spheres_storage.spheres[closest_sphere].color * light_amount;
             }
         }
     }
