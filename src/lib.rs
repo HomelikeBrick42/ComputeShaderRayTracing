@@ -7,6 +7,10 @@ use wgpu::util::DeviceExt;
 struct Camera {
     position: cgmath::Vector3<f32>,
     rotation: Quaternion<f32>,
+    up_sky_color: cgmath::Vector3<f32>,
+    down_sky_color: cgmath::Vector3<f32>,
+    min_distance: f32,
+    max_distance: f32,
 }
 
 #[derive(Clone, Copy, ShaderType)]
@@ -15,6 +19,10 @@ struct CameraUniform {
     forward: cgmath::Vector3<f32>,
     right: cgmath::Vector3<f32>,
     up: cgmath::Vector3<f32>,
+    up_sky_color: cgmath::Vector3<f32>,
+    down_sky_color: cgmath::Vector3<f32>,
+    min_distance: f32,
+    max_distance: f32,
 }
 
 #[derive(Clone, Copy, ShaderType)]
@@ -51,6 +59,10 @@ impl From<Camera> for CameraUniform {
             forward,
             right,
             up,
+            up_sky_color: camera.up_sky_color,
+            down_sky_color: camera.down_sky_color,
+            min_distance: camera.min_distance,
+            max_distance: camera.max_distance,
         }
     }
 }
@@ -136,6 +148,10 @@ impl App {
         let camera = Camera {
             position: (0.0, 0.0, -3.0).into(),
             rotation: Quaternion::from_axis_angle((0.0, 0.0, 1.0).into(), cgmath::Deg(0.0)),
+            up_sky_color: (1.0, 1.0, 1.0).into(),
+            down_sky_color: (0.5, 0.7, 1.0).into(),
+            min_distance: 0.001,
+            max_distance: 1000.0,
         };
 
         let camera_buffer = {
@@ -381,6 +397,29 @@ impl eframe::App for App {
                 "Fixed update time: {:.3}ms",
                 self.last_fixed_update_duration.as_secs_f64() * 1000.0
             ));
+
+            ui.horizontal(|ui| {
+                ui.label("Up Sky Color:");
+                let mut up_sky_color = self.camera.up_sky_color.into();
+                egui::color_picker::color_edit_button_rgb(ui, &mut up_sky_color);
+                self.camera.up_sky_color = up_sky_color.into();
+            });
+            ui.horizontal(|ui| {
+                ui.label("Down Sky Color:");
+                let mut down_sky_color = self.camera.down_sky_color.into();
+                egui::color_picker::color_edit_button_rgb(ui, &mut down_sky_color);
+                self.camera.down_sky_color = down_sky_color.into();
+            });
+            ui.horizontal(|ui| {
+                ui.label("Min Distance:");
+                ui.add(egui::DragValue::new(&mut self.camera.min_distance).speed(0.001));
+                self.camera.min_distance = self.camera.min_distance.max(0.0001);
+            });
+            ui.horizontal(|ui| {
+                ui.label("Max Distance:");
+                ui.add(egui::DragValue::new(&mut self.camera.max_distance).speed(1.0));
+                self.camera.max_distance = self.camera.max_distance.max(0.0);
+            });
 
             ui.collapsing("Spheres", |ui| {
                 if ui.button("Add Sphere").clicked() {

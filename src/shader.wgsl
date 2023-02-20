@@ -8,6 +8,10 @@ struct Camera {
     forward: vec3<f32>,
     right: vec3<f32>,
     up: vec3<f32>,
+    up_sky_color: vec3<f32>,
+    down_sky_color: vec3<f32>,
+    min_distance: f32,
+    max_distance: f32,
 }
 
 struct Sphere {
@@ -33,11 +37,8 @@ var<uniform> camera: Camera;
 @binding(0)
 var<storage> spheres_storage: SpheresBuffer;
 
-const max_distance: f32 = 1000.0;
-const min_distance: f32 = 0.01;
-
 fn sphere_sdf(position: vec3<f32>, sphere: Sphere) -> f32 {
-    return length(sphere.position - position) - sphere.radius;
+    return distance(position, sphere.position) - sphere.radius;
 }
 
 fn sdf(position: vec3<f32>) -> f32 {
@@ -59,9 +60,9 @@ fn sdf(position: vec3<f32>) -> f32 {
 
 fn get_normal(p: vec3<f32>) -> vec3<f32> {
     return normalize(vec3<f32>(
-        sdf(vec3<f32>(p.x + min_distance, p.y, p.z)) - sdf(vec3<f32>(p.x - min_distance, p.y, p.z)),
-        sdf(vec3<f32>(p.x, p.y + min_distance, p.z)) - sdf(vec3<f32>(p.x, p.y - min_distance, p.z)),
-        sdf(vec3<f32>(p.x, p.y, p.z + min_distance)) - sdf(vec3<f32>(p.x, p.y, p.z - min_distance))
+        sdf(vec3<f32>(p.x + camera.min_distance, p.y, p.z)) - sdf(vec3<f32>(p.x - camera.min_distance, p.y, p.z)),
+        sdf(vec3<f32>(p.x, p.y + camera.min_distance, p.z)) - sdf(vec3<f32>(p.x, p.y - camera.min_distance, p.z)),
+        sdf(vec3<f32>(p.x, p.y, p.z + camera.min_distance)) - sdf(vec3<f32>(p.x, p.y, p.z - camera.min_distance))
     ));
 }
 
@@ -69,11 +70,11 @@ fn does_hit(ray: Ray) -> bool {
     var ray = ray;
 
     var distance: f32 = 0.0;
-    while distance < max_distance {
+    while distance < camera.max_distance {
         var dist = sdf(ray.origin);
         ray.origin += ray.direction * dist;
         distance += dist;
-        if dist < min_distance {
+        if dist < camera.min_distance {
             return true;
         }
     }
@@ -85,7 +86,7 @@ fn get_color(ray: Ray) -> vec3<f32> {
 
     if spheres_storage.sphere_count != 0u {
         var distance: f32 = 0.0;
-        while distance < max_distance {
+        while distance < camera.max_distance {
             var closest_sphere = 0u;
             var dist = sphere_sdf(ray.origin, spheres_storage.spheres[0]);
             for (var i: u32 = 1u; i < spheres_storage.sphere_count; i++) {
@@ -97,13 +98,13 @@ fn get_color(ray: Ray) -> vec3<f32> {
             }
             ray.origin += ray.direction * dist;
             distance += dist;
-            if dist < min_distance {
+            if dist < camera.min_distance {
                 let light_direction = normalize(vec3<f32>(0.3, -1.0, 0.4));
 
                 let normal = get_normal(ray.origin);
 
                 var new_ray: Ray;
-                new_ray.origin = ray.origin + normal * min_distance * 2.0;
+                new_ray.origin = ray.origin + normal * camera.min_distance * 2.0;
                 new_ray.direction = -light_direction;
                 let does_hit = does_hit(new_ray);
 
@@ -114,9 +115,7 @@ fn get_color(ray: Ray) -> vec3<f32> {
     }
 
     let t = ray.direction.y * 0.5 + 0.5;
-    let up_color = vec3<f32>(1.0, 1.0, 1.0);
-    let down_color = vec3<f32>(0.5, 0.7, 1.0);
-    return up_color * (1.0 - t) + down_color * t;
+    return camera.up_sky_color * (1.0 - t) + camera.down_sky_color * t;
 }
 
 @compute
