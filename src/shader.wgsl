@@ -11,10 +11,10 @@ struct Sphere {
 
 // vec4s are just so alignment isnt messed up on the rust side
 struct Camera {
-    position: vec4<f32>,
-    forward: vec4<f32>,
-    right: vec4<f32>,
-    up: vec4<f32>,
+    position: vec3<f32>,
+    forward: vec3<f32>,
+    right: vec3<f32>,
+    up: vec3<f32>,
 }
 
 @group(1) @binding(0)
@@ -140,8 +140,8 @@ fn main(
     let aspect = f32(size.x) / f32(size.y);
 
     var ray: Ray;
-    ray.origin = camera.position.xyz;
-    ray.direction = normalize(camera.right.xyz * uv.x * aspect + camera.up.xyz * uv.y + camera.forward.xyz);
+    ray.origin = camera.position;
+    ray.direction = normalize(camera.right * uv.x * aspect + camera.up * uv.y + camera.forward);
 
     let color = get_color(ray);
     textureStore(output_texture, coords.xy, vec4<f32>(color, 1.0));

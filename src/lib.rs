@@ -1,5 +1,6 @@
 use cgmath::{Quaternion, Rotation3};
 use eframe::egui;
+use encase::{ShaderType, UniformBuffer};
 use wgpu::util::DeviceExt;
 
 #[derive(Clone, Copy)]
@@ -8,24 +9,12 @@ struct Camera {
     rotation: Quaternion<f32>,
 }
 
-#[repr(C, align(16))]
-#[derive(Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
+#[derive(Clone, Copy, ShaderType)]
 struct CameraUniform {
-    position: [f32; 4],
-    forward: [f32; 4],
-    right: [f32; 4],
-    up: [f32; 4],
-}
-
-impl CameraUniform {
-    fn new(position: [f32; 3], forward: [f32; 3], right: [f32; 3], up: [f32; 3]) -> Self {
-        Self {
-            position: [position[0], position[1], position[2], 0.0],
-            forward: [forward[0], forward[1], forward[2], 0.0],
-            right: [right[0], right[1], right[2], 0.0],
-            up: [up[0], up[1], up[2], 0.0],
-        }
-    }
+    position: cgmath::Vector3<f32>,
+    forward: cgmath::Vector3<f32>,
+    right: cgmath::Vector3<f32>,
+    up: cgmath::Vector3<f32>,
 }
 
 impl From<Camera> for CameraUniform {
@@ -33,12 +22,12 @@ impl From<Camera> for CameraUniform {
         let forward = camera.rotation * cgmath::vec3(0.0, 0.0, 1.0);
         let right = camera.rotation * cgmath::vec3(1.0, 0.0, 0.0);
         let up = camera.rotation * cgmath::vec3(0.0, 1.0, 0.0);
-        Self::new(
-            camera.position.into(),
-            forward.into(),
-            right.into(),
-            up.into(),
-        )
+        Self {
+            position: camera.position,
+            forward,
+            right,
+            up,
+        }
     }
 }
 
@@ -121,16 +110,21 @@ impl App {
             position: (0.0, 0.0, 0.0).into(),
             rotation: Quaternion::from_axis_angle((0.0, 0.0, 1.0).into(), cgmath::Deg(0.0)),
         };
-        let camera_uniform: CameraUniform = camera.into();
 
-        let camera_buffer =
+        let camera_buffer = {
+            let camera_uniform: CameraUniform = camera.into();
+            let mut buffer = UniformBuffer::new(
+                [0u8; <CameraUniform as ShaderType>::METADATA.min_size().get() as _],
+            );
+            buffer.write(&camera_uniform).unwrap();
             render_state
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Camera Buffer"),
-                    contents: bytemuck::cast_slice(&[camera_uniform]),
+                    contents: &buffer.into_inner(),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
+                })
+        };
 
         let camera_bind_group = render_state
             .device
@@ -219,11 +213,16 @@ impl App {
         }
 
         // Update camera uniform
-        render_state.queue.write_buffer(
-            &self.camera_buffer,
-            0,
-            bytemuck::cast_slice(&[CameraUniform::from(self.camera)]),
-        );
+        {
+            let camera_uniform: CameraUniform = self.camera.into();
+            let mut buffer = UniformBuffer::new(
+                [0u8; <CameraUniform as ShaderType>::METADATA.min_size().get() as _],
+            );
+            buffer.write(&camera_uniform).unwrap();
+            render_state
+                .queue
+                .write_buffer(&self.camera_buffer, 0, &buffer.into_inner());
+        }
 
         let mut encoder = render_state
             .device
@@ -304,8 +303,33 @@ impl eframe::App for App {
                 ui.image(self.texture_id, size);
             });
 
+        if !ctx.wants_pointer_input() {
+            ctx.input(|i| {
+                if i.pointer.secondary_down() {
+                    let rotation_horizontal = cgmath::Quaternion::from_angle_y(cgmath::Deg(
+                        i.pointer.velocity().x * ts as f32,
+                    ));
+                    let rotation_vertical = cgmath::Quaternion::from_angle_x(cgmath::Deg(
+                        i.pointer.velocity().y * ts as f32,
+                    ));
+                    self.camera.rotation = self.camera.rotation * rotation_horizontal;
+                    self.camera.rotation = self.camera.rotation * rotation_vertical;
+                }
+            });
+        }
+
         if !ctx.wants_keyboard_input() {
             ctx.input(|i| {
+                let rotation_roll =
+                    cgmath::Quaternion::from_angle_z(cgmath::Deg(if i.key_down(egui::Key::Q) {
+                        90.0 * ts as f32
+                    } else if i.key_down(egui::Key::E) {
+                        -90.0 * ts as f32
+                    } else {
+                        0.0
+                    }));
+                self.camera.rotation = self.camera.rotation * rotation_roll;
+
                 const CAMERA_SPEED: f32 = 2.0;
 
                 let forward = self.camera.rotation * cgmath::vec3(0.0, 0.0, 1.0);
@@ -324,26 +348,11 @@ impl eframe::App for App {
                 if i.key_down(egui::Key::D) {
                     self.camera.position += CAMERA_SPEED * right * ts as f32;
                 }
-                if i.key_down(egui::Key::Q) {
+                if i.modifiers.ctrl {
                     self.camera.position -= CAMERA_SPEED * up * ts as f32;
                 }
-                if i.key_down(egui::Key::E) {
+                if i.key_down(egui::Key::Space) {
                     self.camera.position += CAMERA_SPEED * up * ts as f32;
-                }
-            });
-        }
-
-        if !ctx.wants_pointer_input() {
-            ctx.input(|i| {
-                if i.pointer.secondary_down() {
-                    let rotation_horizontal = cgmath::Quaternion::from_angle_y(cgmath::Deg(
-                        i.pointer.velocity().x * ts as f32,
-                    ));
-                    let rotation_vertical = cgmath::Quaternion::from_angle_x(cgmath::Deg(
-                        i.pointer.velocity().y * ts as f32,
-                    ));
-                    self.camera.rotation = self.camera.rotation * rotation_horizontal;
-                    self.camera.rotation = self.camera.rotation * rotation_vertical;
                 }
             });
         }
