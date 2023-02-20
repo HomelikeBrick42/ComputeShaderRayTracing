@@ -340,12 +340,12 @@ impl App {
             compute_pass.set_bind_group(2, &self.spheres_bind_group, &[]);
             compute_pass.dispatch_workgroups(dispatch_with as _, dispatch_height as _, 1);
         }
-        let sumbmission_index = render_state.queue.submit([encoder.finish()]);
+        let submission_index = render_state.queue.submit([encoder.finish()]);
 
         // this is slow but its just so the timings are a bit more accurate
         render_state
             .device
-            .poll(wgpu::Maintain::WaitForSubmissionIndex(sumbmission_index));
+            .poll(wgpu::Maintain::WaitForSubmissionIndex(submission_index));
 
         self.last_frame_update_duration = start_frame_time.elapsed();
     }
