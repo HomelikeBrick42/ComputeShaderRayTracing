@@ -169,7 +169,8 @@ impl App {
         };
 
         let (spheres_buffer, spheres_buffer_size) = {
-            let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+            let mut buffer =
+                StorageBuffer::new(Vec::with_capacity(spheres_storage.size().get() as _));
             buffer.write(&spheres_storage).unwrap();
             let buffer = buffer.into_inner();
             (
@@ -287,7 +288,8 @@ impl App {
 
         // Update spheres buffer
         {
-            let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+            let mut buffer =
+                StorageBuffer::new(Vec::with_capacity(self.spheres_storage.size().get() as _));
             buffer.write(&self.spheres_storage).unwrap();
             let buffer = buffer.into_inner();
             if self.spheres_buffer_size < buffer.len() {
