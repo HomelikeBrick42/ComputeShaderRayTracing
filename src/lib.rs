@@ -410,6 +410,7 @@ impl eframe::App for App {
                 egui::color_picker::color_edit_button_rgb(ui, &mut down_sky_color);
                 self.camera.down_sky_color = down_sky_color.into();
             });
+
             ui.horizontal(|ui| {
                 ui.label("Min Distance:");
                 ui.add(egui::DragValue::new(&mut self.camera.min_distance).speed(0.001));
@@ -425,52 +426,53 @@ impl eframe::App for App {
                 if ui.button("Add Sphere").clicked() {
                     self.spheres_storage.spheres.push(Sphere::default());
                 }
-                let mut i = 0;
-                while i < self.spheres_storage.spheres.len() {
-                    let sphere = &mut self.spheres_storage.spheres[i as usize];
-                    let mut to_remove = false;
-                    ui.collapsing(format!("Sphere {i}"), |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label("Position:");
-                            ui.add(
-                                egui::DragValue::new(&mut sphere.position.x)
-                                    .prefix("x: ")
-                                    .speed(0.1),
-                            );
-                            ui.add(
-                                egui::DragValue::new(&mut sphere.position.y)
-                                    .prefix("y: ")
-                                    .speed(0.1),
-                            );
-                            ui.add(
-                                egui::DragValue::new(&mut sphere.position.z)
-                                    .prefix("z: ")
-                                    .speed(0.1),
-                            );
+                egui::ScrollArea::new([false, true]).show(ui, |ui| {
+                    let mut i = 0;
+                    while i < self.spheres_storage.spheres.len() {
+                        let sphere = &mut self.spheres_storage.spheres[i as usize];
+                        let mut to_remove = false;
+                        ui.collapsing(format!("Sphere {i}"), |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("Position:");
+                                ui.add(
+                                    egui::DragValue::new(&mut sphere.position.x)
+                                        .prefix("x: ")
+                                        .speed(0.1),
+                                );
+                                ui.add(
+                                    egui::DragValue::new(&mut sphere.position.y)
+                                        .prefix("y: ")
+                                        .speed(0.1),
+                                );
+                                ui.add(
+                                    egui::DragValue::new(&mut sphere.position.z)
+                                        .prefix("z: ")
+                                        .speed(0.1),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Radius:");
+                                ui.add(egui::DragValue::new(&mut sphere.radius).speed(0.1));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Color:");
+                                let mut color = sphere.color.into();
+                                egui::color_picker::color_edit_button_rgb(ui, &mut color);
+                                sphere.color = color.into();
+                            });
+                            if ui.button("Delete").clicked() {
+                                to_remove = true;
+                            }
                         });
-                        ui.horizontal(|ui| {
-                            ui.label("Radius:");
-                            ui.add(egui::DragValue::new(&mut sphere.radius).speed(0.1));
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Color:");
-                            let mut color = sphere.color.into();
-                            egui::color_picker::color_edit_button_rgb(ui, &mut color);
-                            sphere.color = color.into();
-                        });
-                        if ui.button("Delete").clicked() {
-                            to_remove = true;
+                        if to_remove {
+                            self.spheres_storage.spheres.remove(i as _);
+                        } else {
+                            i += 1;
                         }
-                    });
-                    if to_remove {
-                        self.spheres_storage.spheres.remove(i as _);
-                    } else {
-                        i += 1;
                     }
-                }
+                    ui.allocate_space(ui.available_size());
+                });
             });
-
-            ui.allocate_space(ui.available_size());
         });
         egui::CentralPanel::default()
             .frame(egui::Frame::none())
